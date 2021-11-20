@@ -66,6 +66,10 @@ class Car:
 
         self.acceleration_power = 1
 
+        self.t = 0.0
+
+        self.distance_to_edge = {}
+
         self.show()
 
     def show(self):
@@ -85,30 +89,23 @@ class Car:
         return self.rect.x, self.rect.y
 
 
-    def move_and_show(self, t=0.0):
-        self.show_rotated()
-
+    def collisions(self):
         if self.collide(TRACK_BORDER_MASK):
-            self.bounce(t)
+            self.bounce()
             return
         if self.collide(FINISH_LINE_MASK, FINISH_LINE_rect.x, FINISH_LINE_rect.y):
             if self.velocity[0] < 0:
-                self.bounce(t)
-                return
+                self.bounce()
             else:
                 print('finish_line colliding')
 
-        self.move_acceleration(t=t)
-
-
-    def move_acceleration(self, t=0.0):
-
+    def move(self):
         # Frictions force
         self.velocity *= self.friction
 
         # Speed
-        self.velocity = self.velocity + self.acceleration * t
-        self.pos = self.pos + self.velocity * t
+        self.velocity = self.velocity + self.acceleration * self.t
+        self.pos = self.pos + self.velocity * self.t
 
         self.rect.x = self.pos[0]
         self.rect.y = self.pos[1]
@@ -118,11 +115,36 @@ class Car:
         offset = (round(self.pos[0] - x), round(self.pos[1] - y))
         return mask.overlap(car_mask, offset)
 
-    def bounce(self, t):
+    def bounce(self):
         self.velocity = -1.1 * self.velocity + random.uniform(-0.2, 0.2)
         self.acceleration = self.acceleration/10
         for _ in range(2):
-            self.move_acceleration(t=t)
+            self.move()
+
+    def eyes(self, show_eyes=False):
+        # Take off non assignment bug
+        x, y = 0, 0
+
+        angles_to_check = (-1, 0, 1)  # 0 = front ; +pi = back
+        for i in angles_to_check:
+            x, y = angle_to_direction(self.angle_rad + i)
+            while not self.collide(TRACK_BORDER_MASK, -x, -y) and (-SCREEN_SIZE[0] < x < SCREEN_SIZE[0]
+                                                                   or -SCREEN_SIZE[1] < y < SCREEN_SIZE[0]):
+                if show_eyes:
+                    shooting_eyes = self.image.copy()
+                    shooting_eyes.set_alpha(50)
+                    screen.blit(shooting_eyes, (self.rect.x + x, self.rect.y + y))
+
+                x *= 1.2
+                y *= 1.2
+
+            self.distance_to_edge[i] = (x ** 2 + y ** 2) ** 0.5
+
+            if show_eyes:
+                acceleration = MYFONT.render(str(i) + ' | ' + str(round(self.distance_to_edge[i])) + " pixels", False, (0, 0, 0))
+                screen.blit(acceleration, (20, 50 + i * 30))
+
+        return x, y
 
 
 
@@ -131,7 +153,7 @@ class PlayerCar(Car):
         super().__init__(spawn_pos=(SCREEN_SIZE[0]/2+30, 35), img=pyg.transform.smoothscale(
                          pyg.image.load('assets/player_car.png').convert_alpha(), (40, 25)), speed=0.4)
 
-    def acceleration_from_2_keys_pressed(self, keys):
+    def input(self, keys):
         # Acceleration according to the keys pressed in 2 directions (change only angle)
 
         if keys:
@@ -139,9 +161,9 @@ class PlayerCar(Car):
             # Change direction
             if not (keys[pyg.K_LEFT] and keys[pyg.K_RIGHT]):
                 if keys[pyg.K_RIGHT]:
-                    self.angle -= 1
+                    self.angle -= 2
                 elif keys[pyg.K_LEFT]:
-                    self.angle += 1
+                    self.angle += 2
 
                 self.angle %= 360
                 self.angle_rad = np.deg2rad(self.angle)
@@ -166,30 +188,6 @@ class PlayerCar(Car):
                 self.acceleration_power = 1
                 self.acceleration.fill(0)
 
-    def eyes(self, show_eyes=False):
-        # Take off non assignment bug
-        x, y = 0, 0
-
-        # 0 = front ; +pi = back
-        angles_to_check = (-1, 0, 1)
-        for i in angles_to_check:
-            x, y = angle_to_direction(self.angle_rad + i)
-            while not self.collide(TRACK_BORDER_MASK, -x, -y) and (-SCREEN_SIZE[0] < x < SCREEN_SIZE[0]
-                                                                   or -SCREEN_SIZE[1] < y < SCREEN_SIZE[0]):
-                if show_eyes:
-                    shooting_eyes = self.image.copy()
-                    shooting_eyes.set_alpha(50)
-                    screen.blit(shooting_eyes, (self.rect.x + x, self.rect.y + y))
-
-                x *= 1.2
-                y *= 1.2
-
-            if show_eyes:
-                acceleration = MYFONT.render(str(round((x ** 2 + y ** 2) ** 0.5)) + " pixels", False, (0, 0, 0))
-                screen.blit(acceleration, (20, 50 + i * 30))
-
-        return x, y
-
 
 class ComputerCar(Car):
     def __init__(self, path=None):
@@ -199,9 +197,25 @@ class ComputerCar(Car):
             path = []
         self.path = path
 
+        self.acceleration = np.array([1, 0])
+
     def draw_points(self):
         for point in self.path:
             pyg.draw.circle(screen, (250, 0, 250), point, 5)
+
+    def input(self):
+        if self.distance_to_edge[1] < 40 and self.distance_to_edge[-1] < 40:
+            if self.distance_to_edge[1] < self.distance_to_edge[-1]:
+                self.angle -= 5
+            else:
+                self.angle += 5
+        elif self.distance_to_edge[1] < 40:
+            self.angle -= 5
+        elif self.distance_to_edge[-1] < 40:
+            self.angle += 5
+
+        self.angle_rad = np.deg2rad(self.angle)
+        self.acceleration = np.array(angle_to_direction(self.angle_rad, self.speed))
 
 
 my_car = PlayerCar()
@@ -263,16 +277,30 @@ while running:
 
     # --- Cars ---
 
+    # - Framerate -
+    my_car.t = framerate_adjuster
+    computer.t = framerate_adjuster
+
     # - Car eye -
-    my_car.eyes(show_eyes=True)
+    my_car.eyes(show_eyes=False)
+    computer.eyes(show_eyes=True)
 
     # - Car movement -
-    # Player input
-    my_car.acceleration_from_2_keys_pressed(pyg.key.get_pressed())
+    # Input
+    my_car.input(pyg.key.get_pressed())
+    computer.input()
 
     # Move car
-    my_car.move_and_show(t=framerate_adjuster)
-    #computer.move_and_show(t=framerate_adjuster)
+    my_car.move()
+    computer.move()
+
+    # Collisions
+    my_car.collisions()
+    computer.collisions()
+
+    # - Show cars -
+    computer.show_rotated()
+    my_car.show_rotated()
 
 
 
