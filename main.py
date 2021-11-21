@@ -129,7 +129,7 @@ class Car:
         for i in angles_to_check:
             x, y = angle_to_direction(self.angle_rad + i)
             while not self.collide(TRACK_BORDER_MASK, -x, -y) and (-SCREEN_SIZE[0] < x < SCREEN_SIZE[0]
-                                                                   or -SCREEN_SIZE[1] < y < SCREEN_SIZE[0]):
+                                                                   and -SCREEN_SIZE[1] < y < SCREEN_SIZE[0]):
                 if show_eyes:
                     shooting_eyes = self.image.copy()
                     shooting_eyes.set_alpha(50)
@@ -192,10 +192,15 @@ class PlayerCar(Car):
 class ComputerCar(Car):
     def __init__(self, path=None):
         super().__init__(spawn_pos=(SCREEN_SIZE[0]/2+30, 65), img=pyg.transform.smoothscale(
-                         pyg.image.load('assets/computer_car.png').convert_alpha(), (40, 25)), speed=0.6)
+                         pyg.image.load('assets/computer_car.png').convert_alpha(), (32, 20)), speed=0.8)
+
         if path is None:
             path = []
         self.path = path
+
+        self.distance_to_points = []
+
+        self.update_distance_to_points()
 
         self.acceleration = np.array([1, 0])
 
@@ -203,16 +208,36 @@ class ComputerCar(Car):
         for point in self.path:
             pyg.draw.circle(screen, (250, 0, 250), point, 5)
 
+
+    def update_distance_to_points(self):
+        for point in self.path:
+            self.distance_to_points.append(
+                ((point[0] - self.pos[0])**2 + (point[1] - self.pos[1])**2)**0.5
+            )
+
+        distances = MYFONT.render(str(self.distance_to_points) + " pixels", False,
+                                     (0, 0, 0))
+        screen.blit(distances, (200, 50))
+
     def input(self):
+
+        if self.distance_to_edge[1] == self.distance_to_edge[-1]:
+            pass
+        elif self.distance_to_edge[1] < self.distance_to_edge[-1]:
+            self.angle -= 5 #+ 1/self.distance_to_edge[1]*50
+        else:
+            self.angle += 5 #+ 1/self.distance_to_edge[-1]*50
+        '''
         if self.distance_to_edge[1] < 40 and self.distance_to_edge[-1] < 40:
             if self.distance_to_edge[1] < self.distance_to_edge[-1]:
-                self.angle -= 5
+                self.angle -= 4
             else:
-                self.angle += 5
+                self.angle += 4
         elif self.distance_to_edge[1] < 40:
-            self.angle -= 5
+            self.angle -= 4
         elif self.distance_to_edge[-1] < 40:
-            self.angle += 5
+            self.angle += 4
+        '''
 
         self.angle_rad = np.deg2rad(self.angle)
         self.acceleration = np.array(angle_to_direction(self.angle_rad, self.speed))
